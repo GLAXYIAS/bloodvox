@@ -4,8 +4,87 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BLOODVOX — voxel gore physics sandbox</title>
+    <style>
+      /* Startup cover. Visible from the first paint so a failed script load or
+         missing WebGL reports a message instead of an unexplained black page. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #06070a;
+        color: #e9e3d8;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      #boot[hidden] { display: none; }
+      .boot-card {
+        width: min(560px, 90vw);
+        padding: 26px 28px;
+        border: 1px solid rgba(190, 60, 45, 0.32);
+        background: linear-gradient(180deg, rgba(15, 12, 12, 0.97), rgba(8, 8, 10, 0.98));
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.75);
+      }
+      .boot-title { font-size: 30px; font-weight: 800; letter-spacing: 5px; }
+      .boot-title span { color: #c8342a; }
+      .boot-state { margin-top: 14px; font-size: 11px; letter-spacing: 3px; color: #b9a98f; }
+      .boot-state.bad { color: #e05a45; }
+      .boot-copy { margin-top: 8px; font-size: 12px; line-height: 1.6; color: #8e877b; }
+      .boot-detail {
+        margin-top: 12px;
+        max-height: 180px;
+        overflow: auto;
+        padding: 10px;
+        border: 1px solid rgba(190, 60, 45, 0.25);
+        background: #0a0a0c;
+        color: #d88672;
+        font-size: 11px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #boot-reload {
+        margin-top: 14px;
+        padding: 10px 16px;
+        border: 1px solid rgba(200, 52, 42, 0.6);
+        background: #1a0d0c;
+        color: #e9e3d8;
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: 3px;
+        cursor: pointer;
+      }
+      #boot-reload:hover { background: #2a1210; }
+      .boot-noscript {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #06070a;
+        color: #e9e3d8;
+        font: 14px/1.6 ui-monospace, Menlo, Consolas, monospace;
+        text-align: center;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot" role="status" aria-live="polite">
+      <div class="boot-card">
+        <div class="boot-title">BLOOD<span>VOX</span></div>
+        <div id="boot-state" class="boot-state">LOADING</div>
+        <p id="boot-copy" class="boot-copy">Fetching the game bundle and starting the renderer&hellip;</p>
+        <pre id="boot-detail" class="boot-detail" hidden></pre>
+        <button id="boot-reload" type="button" hidden>RELOAD</button>
+      </div>
+    </div>
+    <noscript>
+      <div class="boot-noscript">BLOODVOX needs JavaScript and WebGL enabled to run.</div>
+    </noscript>
+
     <canvas id="game"></canvas>
 
     <div id="scope">
@@ -429,6 +508,79 @@
       </div>
     </div>
 
+    <script>
+      (function () {
+        var boot = document.getElementById('boot');
+        var state = document.getElementById('boot-state');
+        var copy = document.getElementById('boot-copy');
+        var detail = document.getElementById('boot-detail');
+        var reload = document.getElementById('boot-reload');
+        var failed = false;
+        var started = false;
+
+        function showFailure(message) {
+          failed = true;
+          boot.hidden = false;
+          state.textContent = 'STARTUP FAILED';
+          state.className = 'boot-state bad';
+          copy.textContent = 'BLOODVOX did not start. The browser reported the detail below. Reload with Ctrl+Shift+R (Cmd+Shift+R on Mac) to rule out a stale cached copy.';
+          detail.hidden = false;
+          detail.textContent = String(message).slice(0, 1000);
+          reload.hidden = false;
+        }
+
+        window.addEventListener('error', function (event) {
+          if (started || failed) return;
+          var target = event.target;
+          if (target && target !== window && target.tagName) {
+            showFailure('Could not load ' + (target.src || target.href || target.tagName));
+          } else {
+            showFailure((event.message || 'Script error') + (event.filename ? '\n' + event.filename + ':' + event.lineno + ':' + event.colno : ''));
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          if (started || failed) return;
+          var reason = event.reason;
+          showFailure('Unhandled error: ' + (reason && reason.message ? reason.message : reason));
+        });
+
+        reload.addEventListener('click', function () { location.reload(); });
+
+        // Fail fast with a readable message when the browser cannot render 3D.
+        try {
+          var probe = document.createElement('canvas');
+          var gl = probe.getContext('webgl2') || probe.getContext('webgl');
+          if (!gl) {
+            showFailure('WebGL is unavailable in this browser. BLOODVOX needs it to render; enable hardware acceleration or try another browser.');
+          }
+        } catch (error) {
+          showFailure('WebGL check failed: ' + (error && error.message ? error.message : error));
+        }
+
+        // A completed window load means the module bundle evaluated, so the
+        // menu exists underneath. If anything threw, the error handler has
+        // already pinned a failure screen in place.
+        window.addEventListener('load', function () {
+          if (failed) return;
+          started = true;
+          boot.hidden = true;
+        });
+
+        // Losing the context leaves a running game drawing nothing but black.
+        document.getElementById('game').addEventListener('webglcontextlost', function (event) {
+          event.preventDefault();
+          started = true;
+          showFailure('The graphics context was lost, so the scene can no longer render. Reload to rebuild it.');
+        });
+
+        setTimeout(function () {
+          if (!started && !failed) {
+            showFailure('The game did not finish loading within 30 seconds. A script or style may have failed to download.');
+          }
+        }, 30000);
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
