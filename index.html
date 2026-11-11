@@ -647,14 +647,16 @@
               if (previousBinding !== null) gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, previousBinding);
             } catch (error) { /* ignore */ }
           }
-          var max = 0;
+          // A few bright pixels (the weapon, stars or a HUD-like overlay) do
+          // not mean the world rendered. Treat a frame as black when almost
+          // all of the canvas is near-black; the scene clear colour alone is
+          // rgb(32, 42, 53), so a working frame is far above this coverage.
+          var bright = 0;
+          var total = w * h;
           for (var i = 0; i < pixels.length; i += 4) {
-            var value = pixels[i] > pixels[i + 1] ? pixels[i] : pixels[i + 1];
-            if (pixels[i + 2] > value) value = pixels[i + 2];
-            if (value > max) max = value;
-            if (max > 12) break;
+            if (pixels[i] > 12 || pixels[i + 1] > 12 || pixels[i + 2] > 12) bright++;
           }
-          if (max > 12) {
+          if (bright / total > 0.1) {
             blackDone = true;
             return;
           }
