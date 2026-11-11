@@ -529,6 +529,21 @@
           reload.hidden = false;
         }
 
+        // An exception inside the game's animation frame stops the render loop
+        // while the DOM HUD keeps working, which looks like a black screen.
+        // Catch it and put the real error on screen instead.
+        var nativeRaf = window.requestAnimationFrame.bind(window);
+        window.requestAnimationFrame = function (callback) {
+          return nativeRaf(function (time) {
+            try {
+              callback(time);
+            } catch (error) {
+              console.error('[BLOODVOX] animation frame failed', error);
+              showFailure('Render loop error:\n' + (error && error.stack ? error.stack : error));
+            }
+          });
+        };
+
         window.addEventListener('error', function (event) {
           if (started || failed) return;
           var target = event.target;
@@ -548,11 +563,13 @@
         reload.addEventListener('click', function () { location.reload(); });
 
         // Fail fast with a readable message when the browser cannot render 3D.
+        // Three.js r169 needs WebGL 2 specifically; a WebGL 1 fallback would
+        // pass this check and then fail silently during renderer creation.
         try {
           var probe = document.createElement('canvas');
-          var gl = probe.getContext('webgl2') || probe.getContext('webgl');
+          var gl = probe.getContext('webgl2');
           if (!gl) {
-            showFailure('WebGL is unavailable in this browser. BLOODVOX needs it to render; enable hardware acceleration or try another browser.');
+            showFailure('BLOODVOX needs WebGL 2, which this browser did not provide. Enable hardware acceleration, update the browser, or try Chrome, Edge or Firefox.');
           }
         } catch (error) {
           showFailure('WebGL check failed: ' + (error && error.message ? error.message : error));
