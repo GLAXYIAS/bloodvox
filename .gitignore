@@ -1,0 +1,10 @@
+# Dependencies and generated output
+node_modules/
+dist/
+freebuff-sites-build/
+
+# Local tooling, browser downloads, caches, test probes and screenshots
+/.*
+!/.gitignore
+*.log
+/artifacts/

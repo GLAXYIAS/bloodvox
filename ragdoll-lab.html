@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BLOODVOX — ACTIVE RAGDOLL LAB</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #10161c; color: #e7edf3; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #panel { position: fixed; top: 18px; left: 18px; width: 310px; padding: 16px; border: 1px solid #65758a; background: #0b1118e8; box-shadow: 0 16px 48px #0009; }
+      h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: 3px; color: #f0f5fa; }
+      .sub { margin-bottom: 12px; color: #8d9caf; font-size: 9px; letter-spacing: 1.5px; line-height: 1.5; }
+      .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      button { padding: 8px 6px; border: 1px solid #53657a; background: #16212c; color: #dbe6f1; font: 10px ui-monospace, monospace; letter-spacing: 1px; cursor: pointer; }
+      button:hover { border-color: #9ab4cf; background: #213140; }
+      button.primary { border-color: #c88654; color: #ffd8ad; }
+      #stats { margin-top: 14px; padding-top: 10px; border-top: 1px solid #334354; font-size: 10px; line-height: 1.8; color: #9fb0c2; }
+      #stats b { color: #f1d3a2; font-weight: 600; }
+      #hint { position: fixed; right: 18px; bottom: 16px; color: #8a9aab; font-size: 10px; letter-spacing: 1px; text-shadow: 0 2px 8px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="panel">
+      <h1>RAGDOLL LAB</h1>
+      <div class="sub">PRODUCTION HUMANOID · PHYSICS WORLD · LIVE SCENARIOS</div>
+      <div class="buttons">
+        <button data-run="stand" class="primary">STAND</button>
+        <button data-run="walk">WALK</button>
+        <button data-run="run">RUN</button>
+        <button data-run="push">SIDE SHOVE</button>
+        <button data-run="fall">POWER IMPACT</button>
+        <button data-run="weak">WEAK HIT</button>
+        <button data-run="armour">ARMOURED HIT</button>
+        <button data-run="ground">GROUND HIT</button>
+        <button data-run="crawl1">ONE LEG</button>
+        <button data-run="crawl0">NO LEGS</button>
+        <button data-run="dead">DEAD</button>
+        <button data-run="reset">RESET</button>
+      </div>
+      <div id="stats"></div>
+    </div>
+    <div id="hint">DRAG TO ORBIT · WHEEL TO ZOOM</div>
+    <script type="module" src="/src/ragdoll-lab.js"></script>
+  </body>
+</html>

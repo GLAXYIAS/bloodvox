@@ -1,0 +1,36 @@
+#slowmo {
+  position: absolute;
+  top: 18px;
+  right: 28px;
+  font-size: 10px;
+  letter-spacing: 5px;
+  color: #ff5a45;
+  opacity: 0;
+  transition: opacity 0.12s;
+  text-shadow: 0 0 12px rgba(255, 60, 40, 0.6);
+}
+
+#slowmo.on {
+  opacity: 1;
+  animation: slowpulse 1s steps(2, end) infinite;
+}
+
+@keyframes slowpulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+#vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 40%, rgba(95, 8, 8, 0.55) 100%);
+}
+
+#vignette.on {
+  opacity: 1;
+}

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BLOODVOX — voxel gore physics sandbox</title>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="scope">
+      <div class="scope-reticle">
+        <i class="v"></i><i class="h"></i>
+        <span class="chev c1"></span><span class="chev c2"></span><span class="chev c3"></span>
+      </div>
+      <div class="scope-info">OPTIC 4× &middot; HOLD RMB</div>
+    </div>
+
+    <div id="sight" aria-hidden="true">
+      <i class="sight-ring"></i><i class="sight-dot"></i>
+      <span class="sight-label">2 MOA RED DOT &middot; HOLD RMB</span>
+    </div>
+
+    <div id="hud">
+      <div id="stats">
+        <div><span class="k">KILLS</span><span id="kills">0</span></div>
+        <div><span class="k">GIBS</span><span id="gibs">0</span></div>
+        <div><span class="k">ROUNDS FIRED</span><span id="fired">0</span></div>
+        <div><span class="k">CREDITS</span><span id="credits">$ 250</span></div>
+        <div><span class="k">ARENA</span><span id="map-name">THE PIT</span></div>
+        <div><span class="k">WAVE</span><span id="wave">OFF</span></div>
+        <div><span class="k">NPC MODE</span><span id="mode">DOCILE</span></div>
+        <div><span class="k">NPC ARMED</span><span id="armed-mode">CLEAN</span></div>
+      </div>
+
+      <div id="slowmo">SLO-MO</div>
+
+      <div id="crosshair">
+        <i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i>
+        <div id="hitmarker"></div>
+      </div>
+
+      <div id="callout"></div>
+
+      <div id="weapon-hud">
+        <div id="weapon-slot">[1]</div>
+        <div id="weapon-name">GLOCK 17</div>
+        <div id="pips"></div>
+        <div id="ammo-row">
+          <span id="ammo">12</span><span id="ammo-max">/ 12</span>
+        </div>
+        <div id="reload-hint">[ R ] RELOAD</div>
+      </div>
+
+      <div id="health">
+        <div id="health-track"><i id="health-fill"></i></div>
+        <div id="health-row"><span id="health-num">100</span><span class="lbl">VITALS</span></div>
+      </div>
+
+      <div id="stance">STANDING</div>
+      <div id="meat">EUPHORIA SOLVER ONLINE</div>
+    </div>
+
+    <div id="br-hud" class="off">
+      <div class="br-head">
+        <div class="br-big"><span>ALIVE</span><b id="br-alive">101</b></div>
+        <div class="br-big elim"><span>ELIMS</span><b id="br-elim">0</b></div>
+        <div class="br-zone"><span id="br-phase">ZONE 1/6</span><b id="br-storm">SHRINK IN 00:24</b></div>
+      </div>
+      <div id="br-warning">INSIDE THE SAFE ZONE</div>
+      <div id="br-prompt" class="off">E&nbsp; OPEN CACHE</div>
+      <div id="br-inventory"></div>
+      <div id="br-feed"></div>
+    </div>
+    <div id="br-shield" class="off">
+      <span>SHIELD</span><i><b id="br-shield-fill"></b></i><em id="br-shield-text">0</em>
+    </div>
+    <div id="br-minimap" class="off">
+      <div class="br-map-head"><span>THE ISLAND</span><b>MINIMAP</b></div>
+      <canvas id="br-minimap-canvas" width="220" height="220"></canvas>
+      <div class="br-map-legend"><i class="you"></i>YOU <i class="safe"></i>SAFE <i class="next"></i>NEXT <i class="cache"></i>CACHE</div>
+    </div>
+
+    <div id="battle-hud" class="off">
+      <div class="battle-side">
+        <span class="battle-name">YOU</span>
+        <div class="battle-track"><i id="battle-player-fill"></i></div>
+        <b id="battle-player-hp">150</b>
+      </div>
+      <div class="battle-mid">
+        <b>BUILD BATTLE</b>
+        <span id="battle-status">1v1</span>
+      </div>
+      <div class="battle-side enemy">
+        <span class="battle-name">BUILDER</span>
+        <div class="battle-track"><i id="battle-ai-fill"></i></div>
+        <b id="battle-ai-hp">150</b>
+      </div>
+      <div id="battle-ai-action">HOLD</div>
+    </div>
+
+    <div id="build-hud" class="off">
+      <div class="build-readout">
+        <div><span>PIECE</span><b id="build-piece">WALL</b></div>
+        <div><span>MATERIAL</span><b id="build-material">WOOD</b></div>
+      </div>
+      <div id="build-pieces" class="build-pieces">
+        <button type="button" class="active" data-build-piece="wall"><b>Z</b> WALL</button>
+        <button type="button" data-build-piece="floor"><b>X</b> FLOOR</button>
+        <button type="button" data-build-piece="ramp"><b>C</b> RAMP</button>
+        <button type="button" data-build-piece="roof"><b>V</b> ROOF</button>
+      </div>
+      <div class="build-resources">
+        <span>WOOD <b id="res-wood">240</b></span>
+        <span>BRICK <b id="res-brick">160</b></span>
+        <span>METAL <b id="res-metal">100</b></span>
+      </div>
+      <div id="build-hint" class="build-hint">LMB PLACE &middot; T EDIT &middot; Y CONFIRM &middot; G RESET &middot; H ROTATE &middot; U MATERIAL</div>
+    </div>
+
+    <div id="vignette"></div>
+    <div id="hurt"></div>
+    <div id="death">YOU DIED</div>
+
+    <div id="match-result" class="off">
+      <div class="result-panel">
+        <div class="result-kicker" id="result-kicker">BUILD BATTLE &middot; 1v1</div>
+        <h2 id="result-title">VICTORY</h2>
+        <p id="result-sub">The builder is down.</p>
+        <div class="result-stats">
+          <span>TIME <b id="result-time">0:00</b></span>
+          <span><i id="result-stat-a">STRUCTURES</i> <b id="result-structures">0</b></span>
+          <span><i id="result-stat-b">ENEMY BUILDS</i> <b id="result-builds">—</b></span>
+        </div>
+        <div class="result-actions">
+          <button id="rematch" type="button">REMATCH</button>
+          <button id="result-menu" type="button" class="ghost">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="overlay">
+      <div class="panel">
+        <h1>BLOOD<span>VOX</span></h1>
+        <p class="tag">voxel gore &middot; euphoria ragdolls &middot; no mercy</p>
+
+        <div class="keys">
+          <div><b>W A S D</b><span>move</span></div>
+          <div><b>MOUSE</b><span>aim</span></div>
+          <div><b>LEFT CLICK</b><span>fire / place</span></div>
+          <div><b>RIGHT MOUSE</b><span>aim / block</span></div>
+          <div><b>1 &mdash; 0</b><span>weapon slots</span></div>
+          <div><b>WHEEL</b><span>cycle weapons</span></div>
+          <div><b>Q</b><span>building mode</span></div>
+          <div><b>T / Y / G</b><span>edit / confirm / reset</span></div>
+          <div><b>CTRL</b><span>crouch</span></div>
+          <div><b>F</b><span>weapon bash</span></div>
+          <div><b>R</b><span>reload</span></div>
+          <div><b>SPACE</b><span>jump</span></div>
+          <div><b>SHIFT</b><span>sprint</span></div>
+          <div><b>ESC</b><span>release mouse</span></div>
+        </div>
+
+        <div class="mode-pick">
+          <div class="mode-pick-label">MODE</div>
+          <div id="mode-select" class="mode-grid">
+            <button class="mode-card selected" data-mode="sandbox" type="button">
+              <small>SANDBOX</small><b>FREE FIGHT</b>
+              <span>Existing arenas, waves, armed NPCs and full loadout. Documented sandbox rules.</span>
+            </button>
+            <button class="mode-card" data-mode="buildbattle" type="button">
+              <small>1v1</small><b>BUILD BATTLE</b>
+              <span>One AI builder. Walls, floors, ramps, roofs, edits and a shared resource pool.</span>
+            </button>
+            <button class="mode-card" data-mode="royale" type="button">
+              <small>100 BOTS &middot; NEW</small><b>BATTLE ROYALE</b>
+              <span>Drop into a 236&times;236 island. Open caches, survive the storm, and be the last one standing.</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="map-pick" id="map-pick">
+          <div class="map-pick-label">ARENA</div>
+          <div id="map-select" class="map-grid">
+            <button class="map-card selected" data-map="pit" type="button">
+              <small>01</small><b>THE PIT</b>
+              <span>Open concrete yard. Long sightlines, streetlights, nowhere to hide.</span>
+            </button>
+            <button class="map-card" data-map="house" type="button">
+              <small>02</small><b>BLACKWOOD HOUSE</b>
+              <span>A proper house with a porch, windows and tight rooms. A lawn for the bodies.</span>
+            </button>
+            <button class="map-card" data-map="hospital" type="button">
+              <small>03</small><b>ST. VITUS</b>
+              <span>Long wards, a central corridor, beds and reception. Bad places to bleed.</span>
+            </button>
+          </div>
+          <div id="mode-note" class="mode-note">Build Battle always uses its own symmetrical arena.</div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <b>NPCS FIGHT BACK</b>
+            <span>Off: they run. On: they hunt you, swing, and get faster as they close. Armoured ones still die to a face shot.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="fight-back" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <b>ENDLESS WAVES</b>
+            <span>Every cleared wave pays credits. Each one is larger, tougher and more likely to carry guns. Corpses stay.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="wave-mode" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <b>ARMED NPCS</b>
+            <span>They carry visible pistols and SMGs, keep their distance, use cover and shoot. This mode is hostile on its own.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="armed-npcs" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="overlay-actions">
+          <button id="start">ENTER THE PIT</button>
+          <button id="settings-button" class="ghost" type="button">SETTINGS <span>O</span></button>
+          <button id="armory-button" class="ghost" type="button">ARMOURY <span>B</span></button>
+          <a id="lab-button" href="?lab=1">RAGDOLL LAB <span>TESTS</span></a>
+        </div>
+        <p class="note">Sixteen service firearms, sixteen black-market variants and a full melee rack feed ten assignable slots. Buy attachments for equipped guns, attach them physically, and keep every purchase and configuration between sessions.<br />Sandbox arenas, endless waves and the new 1v1 BUILD BATTLE. Euphoria-style active ragdolls with procedural dismemberment, finite blood loss, ballistic drop and melee carving. The armour is real — aim for the face.</p>
+      </div>
+    </div>
+
+    <div id="settings" aria-hidden="true">
+      <div class="settings-panel">
+        <header class="settings-head">
+          <div>
+            <h2>SETTINGS</h2>
+            <p>Every change applies immediately and is saved between sessions.</p>
+          </div>
+          <button id="settings-close" type="button">CLOSE [ O ]</button>
+        </header>
+
+        <div class="settings-body">
+          <section class="settings-section">
+            <div class="settings-section-title"><b>CONTROLS</b><span>MOUSE &amp; AIM</span></div>
+            <div class="blood-grid">
+              <label class="blood-control">
+                <span>MOUSE SENSITIVITY <output id="sensitivity-value">1.00×</output></span>
+                <input id="sensitivity" type="range" min="0.2" max="3" step="0.05" value="1" />
+                <small>Hip-fire look speed. Applied immediately.</small>
+              </label>
+              <label class="blood-control">
+                <span>AIM / ADS SENSITIVITY <output id="ads-sensitivity-value">0.52×</output></span>
+                <input id="ads-sensitivity" type="range" min="0.1" max="1.5" step="0.01" value="0.52" />
+                <small>Multiplier while aiming down sights or using a scope.</small>
+              </label>
+            </div>
+            <div class="setting-row settings-inline-row">
+              <div class="setting-copy"><b>INVERT LOOK</b><span>Flip vertical mouse movement.</span></div>
+              <label class="switch"><input type="checkbox" id="invert-look" /><span class="slider"></span></label>
+            </div>
+          </section>
+
+          <section class="settings-section keybinds-section">
+            <div class="settings-section-title"><b>KEYBINDS</b><span>CLICK A BINDING, THEN PRESS A KEY</span></div>
+            <p class="settings-note">Every gameplay action is rebindable. If a key is already used, choose SWAP to deliberately exchange the two bindings. Changes apply immediately and are saved automatically.</p>
+            <p class="settings-note keybind-warning"><b>CTRL + W:</b> some browsers reserve this chord for closing a tab. BLOODVOX suppresses it where the browser permits; if your browser still closes the tab, rebind <b>Crouch</b> to another key here and use that instead.</p>
+            <div id="keybind-grid" class="keybind-grid" aria-label="Gameplay keybinds"></div>
+            <div class="keybind-footer">
+              <div id="keybind-status" class="keybind-status" role="status">Bindings saved automatically.</div>
+              <div id="keybind-conflict" class="keybind-conflict" hidden>
+                <span id="keybind-conflict-copy"></span>
+                <button id="keybind-swap" type="button">SWAP</button>
+                <button id="keybind-conflict-cancel" type="button" class="ghost">CANCEL</button>
+              </div>
+              <button id="keybind-reset" type="button" class="keybind-reset">RESTORE DEFAULTS</button>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-title"><b>BLOOD &amp; VIOLENCE</b><span>PRESENTATION ONLY</span></div>
+            <div class="setting-row settings-inline-row">
+              <div class="setting-copy"><b>BLOOD EFFECTS</b><span>Spray, mist, droplets, pools and arterial jets.</span></div>
+              <label class="switch"><input type="checkbox" id="blood-enabled" checked /><span class="slider"></span></label>
+            </div>
+            <div class="setting-row settings-inline-row">
+              <div class="setting-copy"><b>BLOOD DECALS</b><span>Persistent floor pools and wall splatter.</span></div>
+              <label class="switch"><input type="checkbox" id="blood-decals-enabled" checked /><span class="slider"></span></label>
+            </div>
+            <div class="setting-row settings-inline-row">
+              <div class="setting-copy"><b>IMPACT EFFECTS</b><span>Dust, sparks, bullet holes and shell casings.</span></div>
+              <label class="switch"><input type="checkbox" id="impact-effects" checked /><span class="slider"></span></label>
+            </div>
+
+            <div class="blood-grid blood-grid-spaced">
+              <label class="blood-control">
+                <span>BLOOD INTENSITY <output id="blood-intensity-value">100%</output></span>
+                <input id="blood-intensity" type="range" min="0" max="2" step="0.05" value="1" />
+                <small>Overall strength of every red effect.</small>
+              </label>
+              <label class="blood-control">
+                <span>VIOLENCE PRESENTATION <output id="violence-value">100%</output></span>
+                <input id="violence" type="range" min="0" max="1" step="0.05" value="1" />
+                <small>Non-graphic filter on gore volume. Combat damage is unchanged.</small>
+              </label>
+              <label class="blood-control">
+                <span>BLOOD AMOUNT <output id="blood-amount-value">100%</output></span>
+                <input id="blood-amount" type="range" min="0.4" max="2.4" step="0.05" value="1" />
+                <small>Total circulating volume carried by each body.</small>
+              </label>
+              <label class="blood-control">
+                <span>SPRAY INTENSITY <output id="blood-spray-value">100%</output></span>
+                <input id="blood-spray" type="range" min="0" max="2" step="0.05" value="1" />
+                <small>Pressure and reach of arterial jets and impact mist.</small>
+              </label>
+              <label class="blood-control">
+                <span>DECAL AMOUNT <output id="blood-decals-value">100%</output></span>
+                <input id="blood-decals" type="range" min="0" max="2" step="0.05" value="1" />
+                <small>Blood that accumulates on floors, walls and props.</small>
+              </label>
+              <label class="blood-control">
+                <span>PARTICLE AMOUNT <output id="blood-particles-value">100%</output></span>
+                <input id="blood-particles" type="range" min="0" max="2" step="0.05" value="1" />
+                <small>Droplets and mist emitted by every wound.</small>
+              </label>
+              <label class="blood-control">
+                <span>BLOOD PERSISTENCE <output id="blood-persistence-value">75S</output></span>
+                <input id="blood-persistence" type="range" min="0.2" max="3" step="0.05" value="1" />
+                <small>How long blood stains remain in the arena.</small>
+              </label>
+              <label class="blood-control">
+                <span>BLOOD LOSS RATE <output id="blood-loss-rate-value">100%</output></span>
+                <input id="blood-loss-rate" type="range" min="0.2" max="2.5" step="0.05" value="1" />
+                <small>How quickly open wounds drain the finite supply.</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section child-section">
+            <div class="settings-section-title"><b>CHILD SAFETY FILTER</b><span>WHOLE GAME</span></div>
+            <div class="setting-row settings-inline-row child-row">
+              <div class="setting-copy">
+                <b>ENABLE CHILD SAFETY FILTER</b>
+                <span>Removes gore, exposed bone, dismemberment, blood and graphic injury visuals from every mode. Weapons, damage, physics, AI and all gameplay remain active.</span>
+              </div>
+              <label class="switch"><input type="checkbox" id="child-safety" /><span class="slider"></span></label>
+            </div>
+            <p class="settings-note" id="child-note">Off: normal blood settings apply. On: non-graphic impact dust/sparks replace all injury visuals.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="armory">
+      <div class="armory-panel">
+        <header class="armory-head">
+          <div>
+            <h2>LOADOUT &amp; BLACK MARKET</h2>
+            <p>Ten slots on keys 1–0. Service guns are free, Black Market guns are one-time purchases, and GUN MODS attach to the gun currently in your hands.</p>
+          </div>
+          <div class="armory-bank">
+            <span>CREDITS</span>
+            <strong id="armory-credits">$ 250</strong>
+          </div>
+          <button id="armory-close">CLOSE [ B ]</button>
+        </header>
+
+        <nav id="market-tabs" class="market-tabs" role="tablist" aria-label="Black Market categories">
+          <button type="button" class="active" data-market-tab="firearms" role="tab" aria-selected="true"><b>FIREARMS</b><span>Service &amp; Black Market guns</span></button>
+          <button type="button" data-market-tab="melee" role="tab" aria-selected="false"><b>MELEE</b><span>Swords &amp; close combat</span></button>
+          <button type="button" data-market-tab="mods" role="tab" aria-selected="false"><b>GUN MODS</b><span>Fitted to owned guns</span></button>
+        </nav>
+
+        <div class="armory-section-head">
+          <div><b>ACTIVE LOADOUT</b><span>Drag slots to reorder · arrow buttons also move them</span></div>
+          <span class="armory-section-count">KEYS 1 — 0</span>
+        </div>
+        <div id="loadout-grid" class="loadout-grid"></div>
+
+        <section class="market-view" data-market-view="firearms">
+          <div class="armory-section-head">
+            <div><b>FIREARMS</b><span>Service weapons are free · Black Market guns are permanent purchases</span></div>
+            <span id="armory-count" class="armory-section-count">FIREARMS</span>
+          </div>
+          <div id="armory-grid" class="armory-grid"></div>
+        </section>
+
+        <section class="market-view" data-market-view="melee" hidden>
+          <div class="armory-section-head market-head">
+            <div><b>MELEE</b><span>Blades and blunt weapons · bought once, assigned to any slot</span></div>
+            <span id="melee-count" class="armory-section-count">MELEE</span>
+          </div>
+          <div id="melee-grid" class="armory-grid"></div>
+        </section>
+
+        <section class="market-view mods-view" data-market-view="mods" hidden>
+          <div class="armory-section-head">
+            <div><b>GUN MODS</b><span>Select a gun in your loadout · hover to preview · buy, fit or remove</span></div>
+            <span class="armory-section-count">LIVE 3D PREVIEW</span>
+          </div>
+          <div class="mods-layout">
+            <aside class="mods-side">
+              <div class="mods-side-label">EQUIPPED GUNS</div>
+              <div id="mod-gun-list" class="mod-gun-list"></div>
+            </aside>
+            <div class="mods-main">
+              <div class="mod-preview-wrap">
+                <canvas id="mod-preview" width="640" height="260"></canvas>
+                <div class="mod-preview-copy"><strong id="mod-name">GLOCK 17</strong><span id="mod-stats"></span></div>
+              </div>
+              <div id="mod-attachment-grid" class="mod-attachment-grid"></div>
+              <p id="mod-msg" class="mod-msg">Pick a slot and select an attachment. Hovering a part previews it on the gun before purchase.</p>
+            </div>
+          </div>
+        </section>
+
+        <p id="armory-msg">Select a slot, then choose a gun. Purchases, fitted parts and the loadout are saved automatically.</p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
