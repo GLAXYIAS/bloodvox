@@ -6,5 +6,7 @@ freebuff-sites-build/
 # Local tooling, browser downloads, caches, test probes and screenshots
 /.*
 !/.gitignore
+!/.github/
+!/.github/**
 *.log
 /artifacts/
