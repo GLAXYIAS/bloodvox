@@ -44,18 +44,27 @@
         white-space: pre-wrap;
         word-break: break-word;
       }
-      #boot-reload {
+      .boot-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
         margin-top: 14px;
+      }
+      .boot-actions button {
         padding: 10px 16px;
         border: 1px solid rgba(200, 52, 42, 0.6);
         background: #1a0d0c;
         color: #e9e3d8;
         font: inherit;
         font-size: 11px;
-        letter-spacing: 3px;
+        letter-spacing: 2px;
         cursor: pointer;
       }
-      #boot-reload:hover { background: #2a1210; }
+      .boot-actions button:hover { background: #2a1210; }
+      .boot-actions button.ghost {
+        border-color: rgba(190, 60, 45, 0.3);
+        background: #0d0c0d;
+      }
       .boot-noscript {
         position: fixed;
         inset: 0;
@@ -78,7 +87,12 @@
         <div id="boot-state" class="boot-state">LOADING</div>
         <p id="boot-copy" class="boot-copy">Fetching the game bundle and starting the renderer&hellip;</p>
         <pre id="boot-detail" class="boot-detail" hidden></pre>
-        <button id="boot-reload" type="button" hidden>RELOAD</button>
+        <div class="boot-actions">
+          <button id="boot-reload" type="button" hidden>RELOAD</button>
+          <button id="boot-copy-details" type="button" class="ghost" hidden>COPY DETAILS</button>
+          <button id="boot-reset-data" type="button" class="ghost" hidden>RESET GAME DATA</button>
+          <button id="boot-safe-mode" type="button" class="ghost" hidden>TRY SAFE MODE</button>
+        </div>
       </div>
     </div>
     <noscript>
@@ -515,34 +529,188 @@
         var copy = document.getElementById('boot-copy');
         var detail = document.getElementById('boot-detail');
         var reload = document.getElementById('boot-reload');
+        var copyDetails = document.getElementById('boot-copy-details');
+        var resetData = document.getElementById('boot-reset-data');
+        var safeModeBtn = document.getElementById('boot-safe-mode');
         var failed = false;
         var started = false;
+        var defaultCopy = 'BLOODVOX did not start. The browser reported the detail below. Reload with Ctrl+Shift+R (Cmd+Shift+R on Mac) to rule out a stale cached copy.';
 
-        function showFailure(message) {
+        function showFailure(message, title, copyText) {
           failed = true;
           boot.hidden = false;
-          state.textContent = 'STARTUP FAILED';
+          state.textContent = title || 'STARTUP FAILED';
           state.className = 'boot-state bad';
-          copy.textContent = 'BLOODVOX did not start. The browser reported the detail below. Reload with Ctrl+Shift+R (Cmd+Shift+R on Mac) to rule out a stale cached copy.';
+          copy.textContent = copyText || defaultCopy;
           detail.hidden = false;
-          detail.textContent = String(message).slice(0, 1000);
+          detail.textContent = String(message).slice(0, 2000);
           reload.hidden = false;
+          copyDetails.hidden = false;
+          resetData.hidden = false;
+          safeModeBtn.hidden = false;
         }
 
-        // An exception inside the game's animation frame stops the render loop
-        // while the DOM HUD keeps working, which looks like a black screen.
-        // Catch it and put the real error on screen instead.
+        // A black canvas with a working DOM HUD means the render loop stopped
+        // or the GPU is returning black frames. Instrument the game's context
+        // so either case leaves a readable report on screen.
+        var gameCanvas = document.getElementById('game');
+        var gameGl = null;
+        var drawCount = 0;
+        var lastDrawCount = 0;
+        var shaderFailureShown = false;
+        var safeMode = false;
+        try { safeMode = new URLSearchParams(location.search).has('safe'); } catch (error) { safeMode = false; }
+
+        function inspectContext(gl) {
+          if (!gl || gameGl) return;
+          gameGl = gl;
+          try {
+            ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced'].forEach(function (name) {
+              var original = gl[name];
+              if (typeof original !== 'function') return;
+              gl[name] = function () {
+                drawCount++;
+                return original.apply(gl, arguments);
+              };
+            });
+          } catch (error) { /* diagnostics must never block rendering */ }
+          try {
+            var originalShaderParameter = gl.getShaderParameter.bind(gl);
+            gl.getShaderParameter = function (shader, pname) {
+              var result = originalShaderParameter(shader, pname);
+              if (pname === gl.COMPILE_STATUS && !result && !shaderFailureShown) {
+                shaderFailureShown = true;
+                showFailure('Shader compilation failed:\n' + (gl.getShaderInfoLog(shader) || '(no shader log)'), 'SHADER ERROR', 'The graphics driver rejected the game shaders, so no scene can be drawn. Try updating the browser or GPU driver, or use another browser.');
+              }
+              return result;
+            };
+            var originalProgramParameter = gl.getProgramParameter.bind(gl);
+            gl.getProgramParameter = function (program, pname) {
+              var result = originalProgramParameter(program, pname);
+              if (pname === gl.LINK_STATUS && !result && !shaderFailureShown) {
+                shaderFailureShown = true;
+                showFailure('Shader program link failed:\n' + (gl.getProgramInfoLog(program) || '(no program log)'), 'SHADER ERROR', 'The graphics driver rejected the game shaders, so no scene can be drawn. Try updating the browser or GPU driver, or use another browser.');
+              }
+              return result;
+            };
+          } catch (error) { /* diagnostics must never block rendering */ }
+        }
+
+        try {
+          var originalGetContext = HTMLCanvasElement.prototype.getContext;
+          HTMLCanvasElement.prototype.getContext = function (type, attributes) {
+            var contextAttributes = attributes;
+            if (this === gameCanvas && type === 'webgl2' && safeMode && attributes) {
+              contextAttributes = Object.assign({}, attributes, { powerPreference: 'default', failIfMajorPerformanceCaveat: false });
+            }
+            var context = originalGetContext.call(this, type, contextAttributes);
+            if (this === gameCanvas && (type === 'webgl2' || type === 'webgl')) inspectContext(context);
+            return context;
+          };
+        } catch (error) { /* diagnostics must never block rendering */ }
+
         var nativeRaf = window.requestAnimationFrame.bind(window);
+        var lastFrameAt = performance.now();
+        var enteredAt = 0;
+        var blackStreak = 0;
+        var blackDone = false;
+
+        function checkFrames() {
+          if (blackDone || failed || !enteredAt || !gameGl) return;
+          if (document.visibilityState !== 'visible') return;
+          var elapsed = performance.now() - enteredAt;
+          if (elapsed < 4000 || elapsed > 15000) return;
+          if (drawCount > 0) {
+            if (drawCount === lastDrawCount) return;
+            lastDrawCount = drawCount;
+          }
+          if (gameGl.isContextLost()) return;
+          var w = gameGl.drawingBufferWidth;
+          var h = gameGl.drawingBufferHeight;
+          if (!w || !h) {
+            blackDone = true;
+            showFailure('The WebGL drawing buffer is ' + w + 'x' + h + '.', 'GRAPHICS FAILURE', 'The renderer has no drawable surface, so the scene cannot appear.');
+            return;
+          }
+          var pixels;
+          var previousBinding = null;
+          try {
+            previousBinding = gameGl.getParameter(gameGl.FRAMEBUFFER_BINDING);
+            gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, null);
+            pixels = new Uint8Array(w * h * 4);
+            gameGl.readPixels(0, 0, w, h, gameGl.RGBA, gameGl.UNSIGNED_BYTE, pixels);
+          } catch (error) {
+            blackDone = true;
+            return;
+          } finally {
+            try {
+              if (previousBinding !== null) gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, previousBinding);
+            } catch (error) { /* ignore */ }
+          }
+          var max = 0;
+          for (var i = 0; i < pixels.length; i += 4) {
+            var value = pixels[i] > pixels[i + 1] ? pixels[i] : pixels[i + 1];
+            if (pixels[i + 2] > value) value = pixels[i + 2];
+            if (value > max) max = value;
+            if (max > 12) break;
+          }
+          if (max > 12) {
+            blackDone = true;
+            return;
+          }
+          blackStreak++;
+          if (blackStreak < 3) return;
+          blackDone = true;
+          var debug = gameGl.getExtension('WEBGL_debug_renderer_info');
+          var gpu = debug ? gameGl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gameGl.getParameter(gameGl.RENDERER);
+          var vendor = debug ? gameGl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gameGl.getParameter(gameGl.VENDOR);
+          showFailure(
+            'The game is running but the canvas is returning black frames.\n' +
+            'GPU: ' + gpu + '\n' +
+            'Vendor: ' + vendor + '\n' +
+            'WebGL: ' + gameGl.getParameter(gameGl.VERSION) + '\n' +
+            'Drawing buffer: ' + w + 'x' + h + '\n' +
+            'Canvas CSS: ' + gameCanvas.clientWidth + 'x' + gameCanvas.clientHeight + '\n' +
+            'Device pixel ratio: ' + (window.devicePixelRatio || 1) + '\n' +
+            'Draw calls this session: ' + drawCount + '\n' +
+            'Browser: ' + navigator.userAgent,
+            'BLACK FRAME DETECTED',
+            'The browser and GPU are accepting the game but returning a black canvas. The details below identify the graphics stack; updating the browser or GPU driver, or trying another browser, usually fixes this.'
+          );
+        }
+
         window.requestAnimationFrame = function (callback) {
           return nativeRaf(function (time) {
             try {
               callback(time);
             } catch (error) {
               console.error('[BLOODVOX] animation frame failed', error);
-              showFailure('Render loop error:\n' + (error && error.stack ? error.stack : error));
+              showFailure('Render loop error:\n' + (error && error.stack ? error.stack : error), 'RENDER LOOP ERROR', 'The game stopped drawing because an animation-frame error was thrown. The stack below identifies it.');
             }
+            lastFrameAt = performance.now();
+            checkFrames();
           });
         };
+
+        try {
+          var overlay = document.getElementById('overlay');
+          new MutationObserver(function () {
+            if (!enteredAt && overlay.classList.contains('hidden')) enteredAt = performance.now();
+          }).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+        } catch (error) { /* diagnostics must never block rendering */ }
+
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') lastFrameAt = performance.now();
+        });
+
+        setInterval(function () {
+          if (blackDone || failed || !enteredAt) return;
+          if (document.visibilityState !== 'visible') return;
+          if (performance.now() - lastFrameAt > 5000) {
+            blackDone = true;
+            showFailure('The game has not rendered a frame for more than 5 seconds. The render loop appears to have stopped.', 'RENDER LOOP STALLED', 'The game stopped drawing without throwing an error. Reload; if it happens again, send the details below.');
+          }
+        }, 1000);
 
         window.addEventListener('error', function (event) {
           if (started || failed) return;
@@ -561,6 +729,25 @@
         });
 
         reload.addEventListener('click', function () { location.reload(); });
+        copyDetails.addEventListener('click', function () {
+          var text = state.textContent + '\n' + detail.textContent;
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(function () {});
+        });
+        resetData.addEventListener('click', function () {
+          try {
+            for (var i = localStorage.length - 1; i >= 0; i--) {
+              var key = localStorage.key(i);
+              if (key && key.indexOf('bloodvox.') === 0) localStorage.removeItem(key);
+            }
+          } catch (error) { /* storage may be unavailable */ }
+          location.reload();
+        });
+        safeModeBtn.addEventListener('click', function () {
+          var params = new URLSearchParams(location.search);
+          params.set('safe', '1');
+          params.set('v', String(Date.now()));
+          location.search = params.toString();
+        });
 
         // Fail fast with a readable message when the browser cannot render 3D.
         // Three.js r169 needs WebGL 2 specifically; a WebGL 1 fallback would
@@ -585,10 +772,10 @@
         });
 
         // Losing the context leaves a running game drawing nothing but black.
-        document.getElementById('game').addEventListener('webglcontextlost', function (event) {
+        gameCanvas.addEventListener('webglcontextlost', function (event) {
           event.preventDefault();
           started = true;
-          showFailure('The graphics context was lost, so the scene can no longer render. Reload to rebuild it.');
+          showFailure('The graphics context was lost, so the scene can no longer render. Reload to rebuild it.', 'GRAPHICS CONTEXT LOST', 'The GPU dropped the WebGL context. Reload to rebuild it; if it keeps happening, close other GPU-heavy tabs or try another browser.');
         });
 
         setTimeout(function () {
