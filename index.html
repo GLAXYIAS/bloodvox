@@ -657,6 +657,9 @@
             if (pixels[i] > 12 || pixels[i + 1] > 12 || pixels[i + 2] > 12) bright++;
           }
           if (bright / total > 0.1) {
+            // A real frame is on screen. Clear the one-shot auto-safe guard so
+            // a later graphics failure can fall back again.
+            try { sessionStorage.removeItem('bloodvox.safeAuto'); } catch (error) { /* ignore */ }
             blackDone = true;
             return;
           }
@@ -666,7 +669,7 @@
           var debug = gameGl.getExtension('WEBGL_debug_renderer_info');
           var gpu = debug ? gameGl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gameGl.getParameter(gameGl.RENDERER);
           var vendor = debug ? gameGl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gameGl.getParameter(gameGl.VENDOR);
-          showFailure(
+          var report =
             'The game is running but the canvas is returning black frames.\n' +
             'GPU: ' + gpu + '\n' +
             'Vendor: ' + vendor + '\n' +
@@ -675,7 +678,31 @@
             'Canvas CSS: ' + gameCanvas.clientWidth + 'x' + gameCanvas.clientHeight + '\n' +
             'Device pixel ratio: ' + (window.devicePixelRatio || 1) + '\n' +
             'Draw calls this session: ' + drawCount + '\n' +
-            'Browser: ' + navigator.userAgent,
+            'Safe graphics: ' + (safeMode ? 'on' : 'off') + '\n' +
+            'Browser: ' + navigator.userAgent;
+          // One automatic fallback per tab. If safe graphics also return
+          // black frames, stop and show the report instead of reloading again.
+          if (!safeMode) {
+            var autoTried = true;
+            try { autoTried = sessionStorage.getItem('bloodvox.safeAuto') === '1'; } catch (error) { autoTried = true; }
+            if (!autoTried) {
+              try { sessionStorage.setItem('bloodvox.safeAuto', '1'); } catch (error) { /* ignore */ }
+              showFailure(
+                report,
+                'BLACK FRAME — STARTING SAFE GRAPHICS',
+                'The canvas returned black frames. Reloading once with shadows disabled, a lower resolution, medium shader precision and the default GPU. If this screen appears again, copy the details below.'
+              );
+              setTimeout(function () {
+                var params = new URLSearchParams(location.search);
+                params.set('safe', '1');
+                params.set('v', String(Date.now()));
+                location.search = params.toString();
+              }, 1400);
+              return;
+            }
+          }
+          showFailure(
+            report,
             'BLACK FRAME DETECTED',
             'The browser and GPU are accepting the game but returning a black canvas. The details below identify the graphics stack; updating the browser or GPU driver, or trying another browser, usually fixes this.'
           );

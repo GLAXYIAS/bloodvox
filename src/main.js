@@ -31,14 +31,23 @@ import { BuildBattle } from './buildbattle.js';
 import { BattleRoyale } from './battleroyale.js';
 
 const LAB_MODE = new URLSearchParams(location.search).has('lab');
+// Safe mode is a real low-end renderer path: default GPU, medium precision,
+// no shadow maps and a smaller drawing buffer. The startup card can switch to
+// it automatically when the canvas is returning black frames.
+const SAFE_MODE = new URLSearchParams(location.search).has('safe');
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById('game');
-const RES_SCALE = 0.9;
+const RES_SCALE = SAFE_MODE ? 0.6 : 0.9;
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: false,
+  powerPreference: SAFE_MODE ? 'default' : 'high-performance',
+  precision: SAFE_MODE ? 'mediump' : 'highp',
+});
 renderer.setPixelRatio(1);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !SAFE_MODE;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -65,7 +74,7 @@ scene.add(ambient);
 
 const sun = new THREE.DirectionalLight(0xffe8d0, 3.95);
 sun.position.set(14, 22, 10);
-sun.castShadow = true;
+sun.castShadow = !SAFE_MODE;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -26;
 sun.shadow.camera.right = 26;
@@ -1980,7 +1989,28 @@ npcs.onGunshot = (from, to, kind) => {
 let running = false;
 let fallback = false;
 let lockBlocked = false;
+let warming = false;
+let warmFrames = 0;
 const overlay = ui.overlay;
+
+// Keep the menu painted over the canvas until the first two frames have been
+// rendered. Shader compilation can take seconds on a weak GPU, and hiding the
+// menu first is what turns that wait into a black screen.
+function beginWarmup() {
+  warming = true;
+  warmFrames = 0;
+  document.body.classList.add('locked');
+  overlay.classList.remove('hidden');
+  overlay.classList.remove('paused');
+  overlay.querySelector('.tag').textContent = SAFE_MODE
+    ? 'entering the arena · safe graphics'
+    : 'entering the arena · loading the scene';
+}
+
+function finishWarmup() {
+  warming = false;
+  overlay.classList.add('hidden');
+}
 
 function clearKeys() {
   player.keys.forward = false;
@@ -2024,7 +2054,7 @@ function startFallback() {
   fallback = true;
   lockBlocked = true;
   running = true;
-  lockFailed();
+  beginWarmup();
 }
 
 function enterGame() {
@@ -2070,12 +2100,13 @@ document.addEventListener('pointerlockchange', () => {
   fallback = false;
   running = locked;
   document.body.classList.toggle('locked', running);
-  overlay.classList.toggle('hidden', running);
-  if (!locked) {
+  if (locked) {
+    lockBlocked = false;
+    beginWarmup();
+  } else {
+    warming = false;
     if (!buildBattle.resultShown && !battleRoyale.resultShown) pauseGame();
     else running = false;
-  } else {
-    lockBlocked = false;
   }
   clearKeys();
 });
@@ -2377,6 +2408,10 @@ function frame(now) {
   sun.target.updateMatrixWorld();
 
   renderer.render(scene, camera);
+  if (warming && running) {
+    warmFrames += 1;
+    if (warmFrames >= 2) finishWarmup();
+  }
   requestAnimationFrame(frame);
 }
 
