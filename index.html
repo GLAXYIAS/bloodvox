@@ -559,7 +559,21 @@
         var lastDrawCount = 0;
         var shaderFailureShown = false;
         var safeMode = false;
-        try { safeMode = new URLSearchParams(location.search).has('safe'); } catch (error) { safeMode = false; }
+        var compatMode = false;
+        try {
+          var modeParams = new URLSearchParams(location.search);
+          safeMode = modeParams.has('safe');
+          compatMode = modeParams.has('compat');
+        } catch (error) { safeMode = false; compatMode = false; }
+
+        function reloadInto(mode) {
+          var params = new URLSearchParams(location.search);
+          params.delete('safe');
+          params.delete('compat');
+          params.set(mode, '1');
+          params.set('v', String(Date.now()));
+          location.search = params.toString();
+        }
 
         function inspectContext(gl) {
           if (!gl || gameGl) return;
@@ -619,7 +633,7 @@
           if (blackDone || failed || !enteredAt || !gameGl) return;
           if (document.visibilityState !== 'visible') return;
           var elapsed = performance.now() - enteredAt;
-          if (elapsed < 4000 || elapsed > 15000) return;
+          if (elapsed < 2500 || elapsed > 15000) return;
           if (drawCount > 0) {
             if (drawCount === lastDrawCount) return;
             lastDrawCount = drawCount;
@@ -641,6 +655,7 @@
             gameGl.readPixels(0, 0, w, h, gameGl.RGBA, gameGl.UNSIGNED_BYTE, pixels);
           } catch (error) {
             blackDone = true;
+            showFailure('Reading the rendered frame failed:\n' + (error && error.message ? error.message : error), 'GRAPHICS READBACK FAILED', 'The browser refused to read back the rendered canvas, so the black-frame check could not run. If the scene is visible, ignore this panel; otherwise try another browser.');
             return;
           } finally {
             try {
@@ -657,9 +672,10 @@
             if (pixels[i] > 12 || pixels[i + 1] > 12 || pixels[i + 2] > 12) bright++;
           }
           if (bright / total > 0.1) {
-            // A real frame is on screen. Clear the one-shot auto-safe guard so
-            // a later graphics failure can fall back again.
+            // A real frame is on screen. Clear the one-shot fallback guards so
+            // a later graphics failure can walk the ladder again.
             try { sessionStorage.removeItem('bloodvox.safeAuto'); } catch (error) { /* ignore */ }
+            try { sessionStorage.removeItem('bloodvox.compatAuto'); } catch (error) { /* ignore */ }
             blackDone = true;
             return;
           }
@@ -679,32 +695,39 @@
             'Device pixel ratio: ' + (window.devicePixelRatio || 1) + '\n' +
             'Draw calls this session: ' + drawCount + '\n' +
             'Safe graphics: ' + (safeMode ? 'on' : 'off') + '\n' +
+            'Compatibility graphics: ' + (compatMode ? 'on' : 'off') + '\n' +
             'Browser: ' + navigator.userAgent;
-          // One automatic fallback per tab. If safe graphics also return
-          // black frames, stop and show the report instead of reloading again.
-          if (!safeMode) {
-            var autoTried = true;
-            try { autoTried = sessionStorage.getItem('bloodvox.safeAuto') === '1'; } catch (error) { autoTried = true; }
-            if (!autoTried) {
-              try { sessionStorage.setItem('bloodvox.safeAuto', '1'); } catch (error) { /* ignore */ }
-              showFailure(
-                report,
-                'BLACK FRAME — STARTING SAFE GRAPHICS',
-                'The canvas returned black frames. Reloading once with shadows disabled, a lower resolution, medium shader precision and the default GPU. If this screen appears again, copy the details below.'
-              );
-              setTimeout(function () {
-                var params = new URLSearchParams(location.search);
-                params.set('safe', '1');
-                params.set('v', String(Date.now()));
-                location.search = params.toString();
-              }, 1400);
-              return;
-            }
+          // Staged fallback, one attempt per stage per tab: safe graphics, then
+          // compatibility graphics, then a readable report. Each stage changes
+          // how the WebGL context is created, not only how much it draws.
+          var triedSafe = true;
+          var triedCompat = true;
+          try { triedSafe = sessionStorage.getItem('bloodvox.safeAuto') === '1'; } catch (error) { triedSafe = true; }
+          try { triedCompat = sessionStorage.getItem('bloodvox.compatAuto') === '1'; } catch (error) { triedCompat = true; }
+          if (!safeMode && !compatMode && !triedSafe) {
+            try { sessionStorage.setItem('bloodvox.safeAuto', '1'); } catch (error) { /* ignore */ }
+            showFailure(
+              report,
+              'BLACK FRAME — TRYING SAFE GRAPHICS',
+              'The canvas returned black frames. Reloading once with the default GPU, no shadows, medium shader precision and a smaller drawing buffer. If this screen appears again, the next stage is compatibility graphics.'
+            );
+            setTimeout(function () { reloadInto('safe'); }, 1000);
+            return;
+          }
+          if (!compatMode && !triedCompat) {
+            try { sessionStorage.setItem('bloodvox.compatAuto', '1'); } catch (error) { /* ignore */ }
+            showFailure(
+              report,
+              'BLACK FRAME — TRYING COMPATIBILITY GRAPHICS',
+              'Safe graphics also returned black frames. Reloading with compatibility graphics: low-power GPU, readable drawing buffer, no tone mapping, no sRGB conversion, no fog and half resolution.'
+            );
+            setTimeout(function () { reloadInto('compat'); }, 1000);
+            return;
           }
           showFailure(
             report,
             'BLACK FRAME DETECTED',
-            'The browser and GPU are accepting the game but returning a black canvas. The details below identify the graphics stack; updating the browser or GPU driver, or trying another browser, usually fixes this.'
+            'The browser and GPU are accepting the game but returning a black canvas even with compatibility graphics. The details below identify the graphics stack; updating the browser or GPU driver, or trying another browser, usually fixes this.'
           );
         }
 
@@ -772,10 +795,7 @@
           location.reload();
         });
         safeModeBtn.addEventListener('click', function () {
-          var params = new URLSearchParams(location.search);
-          params.set('safe', '1');
-          params.set('v', String(Date.now()));
-          location.search = params.toString();
+          reloadInto(safeMode ? 'compat' : 'safe');
         });
 
         // Fail fast with a readable message when the browser cannot render 3D.
@@ -786,6 +806,11 @@
           var gl = probe.getContext('webgl2');
           if (!gl) {
             showFailure('BLOODVOX needs WebGL 2, which this browser did not provide. Enable hardware acceleration, update the browser, or try Chrome, Edge or Firefox.');
+          } else {
+            // Release the probe context immediately. Browsers cap the number of
+            // live WebGL contexts, and holding this one can make the game's own
+            // context creation fail or get evicted on low-memory devices.
+            try { gl.getExtension('WEBGL_lose_context').loseContext(); } catch (error) { /* ignore */ }
           }
         } catch (error) {
           showFailure('WebGL check failed: ' + (error && error.message ? error.message : error));

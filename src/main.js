@@ -30,28 +30,43 @@ import { BuildSystem, buildPieceGeometry } from './building.js';
 import { BuildBattle } from './buildbattle.js';
 import { BattleRoyale } from './battleroyale.js';
 
-const LAB_MODE = new URLSearchParams(location.search).has('lab');
-// Safe mode is a real low-end renderer path: default GPU, medium precision,
-// no shadow maps and a smaller drawing buffer. The startup card can switch to
-// it automatically when the canvas is returning black frames.
-const SAFE_MODE = new URLSearchParams(location.search).has('safe');
+const PARAMS = new URLSearchParams(location.search);
+const LAB_MODE = PARAMS.has('lab');
+// Graphics modes form a compatibility ladder. Normal mode is deliberately
+// conservative (the browser picks the GPU; high-performance hints can select a
+// broken discrete GPU on hybrid laptops and composite a black canvas).
+// Safe mode drops shadows, precision and resolution. Compatibility mode is the
+// last stop: it keeps the drawing buffer readable, skips tone mapping and sRGB
+// conversion, disables fog and renders at half resolution.
+const SAFE_MODE = PARAMS.has('safe');
+const COMPAT_MODE = PARAMS.has('compat');
+const LOW_MODE = SAFE_MODE || COMPAT_MODE;
 
 // ---------------------------------------------------------------- renderer
-const canvas = document.getElementById('game');
-const RES_SCALE = SAFE_MODE ? 0.6 : 0.9;
+const gameCanvas = document.getElementById('game');
+// Compatibility graphics renders into an offscreen WebGL canvas and copies each
+// finished frame into the visible 2D canvas. A broken GPU compositor can show a
+// black WebGL canvas even when the drawing buffer holds a correct frame.
+const canvas = COMPAT_MODE ? document.createElement('canvas') : gameCanvas;
+const displayCtx = COMPAT_MODE ? gameCanvas.getContext('2d') : null;
+const RES_SCALE = COMPAT_MODE ? 0.45 : SAFE_MODE ? 0.6 : 0.9;
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: false,
-  powerPreference: SAFE_MODE ? 'default' : 'high-performance',
-  precision: SAFE_MODE ? 'mediump' : 'highp',
+  alpha: false,
+  powerPreference: COMPAT_MODE ? 'low-power' : 'default',
+  precision: LOW_MODE ? 'mediump' : 'highp',
+  preserveDrawingBuffer: COMPAT_MODE,
+  failIfMajorPerformanceCaveat: false,
 });
 renderer.setPixelRatio(1);
-renderer.shadowMap.enabled = !SAFE_MODE;
+renderer.shadowMap.enabled = !LOW_MODE;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = COMPAT_MODE ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
+renderer.toneMapping = COMPAT_MODE ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.6;
+if (COMPAT_MODE) document.body.classList.add('compat');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202a35);
@@ -74,7 +89,7 @@ scene.add(ambient);
 
 const sun = new THREE.DirectionalLight(0xffe8d0, 3.95);
 sun.position.set(14, 22, 10);
-sun.castShadow = !SAFE_MODE;
+sun.castShadow = !LOW_MODE;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -26;
 sun.shadow.camera.right = 26;
@@ -96,6 +111,7 @@ scene.add(fill);
 
 // ---------------------------------------------------------------- systems
 const world = new World(scene, 'pit');
+if (COMPAT_MODE) scene.fog = null;
 const fx = new FX(scene, world);
 const debris = new Debris(scene, world, 240);
 const organs = createOrgans();
@@ -2002,9 +2018,11 @@ function beginWarmup() {
   document.body.classList.add('locked');
   overlay.classList.remove('hidden');
   overlay.classList.remove('paused');
-  overlay.querySelector('.tag').textContent = SAFE_MODE
-    ? 'entering the arena · safe graphics'
-    : 'entering the arena · loading the scene';
+  overlay.querySelector('.tag').textContent = COMPAT_MODE
+    ? 'entering the arena · compatibility graphics'
+    : SAFE_MODE
+      ? 'entering the arena · safe graphics'
+      : 'entering the arena · loading the scene';
 }
 
 function finishWarmup() {
@@ -2059,19 +2077,19 @@ function startFallback() {
 
 function enterGame() {
   sound.init();
-  if (lockBlocked || !canvas.requestPointerLock) {
+  if (lockBlocked || !gameCanvas.requestPointerLock) {
     startFallback();
     return;
   }
   try {
-    const res = canvas.requestPointerLock();
+    const res = gameCanvas.requestPointerLock();
     if (res && typeof res.catch === 'function') res.catch(() => startFallback());
   } catch (err) {
     startFallback();
     return;
   }
   setTimeout(() => {
-    if (document.pointerLockElement !== canvas) startFallback();
+    if (document.pointerLockElement !== gameCanvas) startFallback();
   }, 400);
 }
 
@@ -2089,14 +2107,14 @@ overlay.addEventListener('click', (e) => {
   if (e.target === overlay) resumeOrStart();
 });
 
-canvas.addEventListener('click', () => {
+gameCanvas.addEventListener('click', () => {
   if (!running) enterGame();
 });
 
 document.addEventListener('pointerlockerror', () => startFallback());
 
 document.addEventListener('pointerlockchange', () => {
-  const locked = document.pointerLockElement === canvas;
+  const locked = document.pointerLockElement === gameCanvas;
   fallback = false;
   running = locked;
   document.body.classList.toggle('locked', running);
@@ -2324,11 +2342,18 @@ window.addEventListener('keyup', (e) => {
 
 // ---------------------------------------------------------------- resize
 function resize() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  // A zero-width or zero-height viewport (a hidden iframe or a panel that has
+  // not been laid out yet) would otherwise produce a NaN projection matrix and
+  // a permanently black scene.
+  const w = Math.max(1, window.innerWidth);
+  const h = Math.max(1, window.innerHeight);
   renderer.setSize(Math.floor(w * RES_SCALE), Math.floor(h * RES_SCALE), false);
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
+  if (displayCtx) {
+    gameCanvas.width = Math.max(1, Math.floor(w * RES_SCALE));
+    gameCanvas.height = Math.max(1, Math.floor(h * RES_SCALE));
+  }
+  gameCanvas.style.width = '100%';
+  gameCanvas.style.height = '100%';
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -2408,6 +2433,13 @@ function frame(now) {
   sun.target.updateMatrixWorld();
 
   renderer.render(scene, camera);
+  if (displayCtx) {
+    if (gameCanvas.width !== canvas.width || gameCanvas.height !== canvas.height) {
+      gameCanvas.width = canvas.width;
+      gameCanvas.height = canvas.height;
+    }
+    displayCtx.drawImage(canvas, 0, 0, gameCanvas.width, gameCanvas.height);
+  }
   if (warming && running) {
     warmFrames += 1;
     if (warmFrames >= 2) finishWarmup();

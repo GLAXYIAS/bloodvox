@@ -28,6 +28,12 @@ body.locked #game {
   cursor: none;
 }
 
+/* Compatibility graphics avoids nearest-neighbour upscaling, which some old
+   compositors handle badly for a WebGL canvas. */
+body.compat #game {
+  image-rendering: auto;
+}
+
 #hud {
   position: fixed;
   inset: 0;
