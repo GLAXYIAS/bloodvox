@@ -610,6 +610,10 @@
           } catch (error) { /* diagnostics must never block rendering */ }
         }
 
+        // main.js may render into an offscreen WebGL canvas, so it hands its
+        // context over here for shader-error and GPU reporting.
+        window.__bloodvoxAttachGL = inspectContext;
+
         try {
           var originalGetContext = HTMLCanvasElement.prototype.getContext;
           HTMLCanvasElement.prototype.getContext = function (type, attributes) {
@@ -630,7 +634,7 @@
         var blackDone = false;
 
         function checkFrames() {
-          if (blackDone || failed || !enteredAt || !gameGl) return;
+          if (blackDone || failed || !enteredAt) return;
           if (document.visibilityState !== 'visible') return;
           var elapsed = performance.now() - enteredAt;
           if (elapsed < 2500 || elapsed > 15000) return;
@@ -638,29 +642,59 @@
             if (drawCount === lastDrawCount) return;
             lastDrawCount = drawCount;
           }
-          if (gameGl.isContextLost()) return;
-          var w = gameGl.drawingBufferWidth;
-          var h = gameGl.drawingBufferHeight;
-          if (!w || !h) {
-            blackDone = true;
-            showFailure('The WebGL drawing buffer is ' + w + 'x' + h + '.', 'GRAPHICS FAILURE', 'The renderer has no drawable surface, so the scene cannot appear.');
-            return;
-          }
+          var display = window.__bloodvoxDisplay;
+          if (!display && !gameGl) return;
+          if (display && !display.ctx) return;
+          var w;
+          var h;
           var pixels;
-          var previousBinding = null;
-          try {
-            previousBinding = gameGl.getParameter(gameGl.FRAMEBUFFER_BINDING);
-            gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, null);
-            pixels = new Uint8Array(w * h * 4);
-            gameGl.readPixels(0, 0, w, h, gameGl.RGBA, gameGl.UNSIGNED_BYTE, pixels);
-          } catch (error) {
-            blackDone = true;
-            showFailure('Reading the rendered frame failed:\n' + (error && error.message ? error.message : error), 'GRAPHICS READBACK FAILED', 'The browser refused to read back the rendered canvas, so the black-frame check could not run. If the scene is visible, ignore this panel; otherwise try another browser.');
-            return;
-          } finally {
+          if (display) {
+            // The visible 2D canvas is exactly what the browser is compositing,
+            // so this detects a black presentation even when the offscreen
+            // WebGL buffer contains a correct frame.
+            w = display.canvas.width;
+            h = display.canvas.height;
+            if (!w || !h) {
+              blackDone = true;
+              showFailure('The game canvas is ' + w + 'x' + h + '.', 'GRAPHICS FAILURE', 'The renderer has no drawable surface, so the scene cannot appear.');
+              return;
+            }
             try {
-              if (previousBinding !== null) gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, previousBinding);
-            } catch (error) { /* ignore */ }
+              var sampler = document.createElement('canvas');
+              sampler.width = w;
+              sampler.height = h;
+              var samplerCtx = sampler.getContext('2d');
+              samplerCtx.drawImage(display.canvas, 0, 0);
+              pixels = samplerCtx.getImageData(0, 0, w, h).data;
+            } catch (error) {
+              blackDone = true;
+              showFailure('Reading the presented frame failed:\n' + (error && error.message ? error.message : error), 'GRAPHICS READBACK FAILED', 'The browser refused to read back the presented canvas, so the black-frame check could not run. If the scene is visible, ignore this panel; otherwise try another browser.');
+              return;
+            }
+          } else {
+            if (gameGl.isContextLost()) return;
+            w = gameGl.drawingBufferWidth;
+            h = gameGl.drawingBufferHeight;
+            if (!w || !h) {
+              blackDone = true;
+              showFailure('The WebGL drawing buffer is ' + w + 'x' + h + '.', 'GRAPHICS FAILURE', 'The renderer has no drawable surface, so the scene cannot appear.');
+              return;
+            }
+            var previousBinding = null;
+            try {
+              previousBinding = gameGl.getParameter(gameGl.FRAMEBUFFER_BINDING);
+              gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, null);
+              pixels = new Uint8Array(w * h * 4);
+              gameGl.readPixels(0, 0, w, h, gameGl.RGBA, gameGl.UNSIGNED_BYTE, pixels);
+            } catch (error) {
+              blackDone = true;
+              showFailure('Reading the rendered frame failed:\n' + (error && error.message ? error.message : error), 'GRAPHICS READBACK FAILED', 'The browser refused to read back the rendered canvas, so the black-frame check could not run. If the scene is visible, ignore this panel; otherwise try another browser.');
+              return;
+            } finally {
+              try {
+                if (previousBinding !== null) gameGl.bindFramebuffer(gameGl.FRAMEBUFFER, previousBinding);
+              } catch (error) { /* ignore */ }
+            }
           }
           // A few bright pixels (the weapon, stars or a HUD-like overlay) do
           // not mean the world rendered. Treat a frame as black when almost
@@ -682,14 +716,15 @@
           blackStreak++;
           if (blackStreak < 3) return;
           blackDone = true;
-          var debug = gameGl.getExtension('WEBGL_debug_renderer_info');
-          var gpu = debug ? gameGl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gameGl.getParameter(gameGl.RENDERER);
-          var vendor = debug ? gameGl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gameGl.getParameter(gameGl.VENDOR);
+          var reportGl = gameGl || (display && display.glCanvas ? display.glCanvas.getContext('webgl2') : null);
+          var debug = reportGl ? reportGl.getExtension('WEBGL_debug_renderer_info') : null;
+          var gpu = reportGl ? (debug ? reportGl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : reportGl.getParameter(reportGl.RENDERER)) : 'unavailable';
+          var vendor = reportGl ? (debug ? reportGl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : reportGl.getParameter(reportGl.VENDOR)) : 'unavailable';
           var report =
             'The game is running but the canvas is returning black frames.\n' +
             'GPU: ' + gpu + '\n' +
             'Vendor: ' + vendor + '\n' +
-            'WebGL: ' + gameGl.getParameter(gameGl.VERSION) + '\n' +
+            'WebGL: ' + (reportGl ? reportGl.getParameter(reportGl.VERSION) : 'unavailable') + '\n' +
             'Drawing buffer: ' + w + 'x' + h + '\n' +
             'Canvas CSS: ' + gameCanvas.clientWidth + 'x' + gameCanvas.clientHeight + '\n' +
             'Device pixel ratio: ' + (window.devicePixelRatio || 1) + '\n' +

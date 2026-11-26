@@ -44,11 +44,25 @@ const LOW_MODE = SAFE_MODE || COMPAT_MODE;
 
 // ---------------------------------------------------------------- renderer
 const gameCanvas = document.getElementById('game');
-// Compatibility graphics renders into an offscreen WebGL canvas and copies each
-// finished frame into the visible 2D canvas. A broken GPU compositor can show a
-// black WebGL canvas even when the drawing buffer holds a correct frame.
-const canvas = COMPAT_MODE ? document.createElement('canvas') : gameCanvas;
-const displayCtx = COMPAT_MODE ? gameCanvas.getContext('2d') : null;
+// Every frame is presented through the visible 2D canvas by default. A broken
+// GPU compositor can paint a perfectly rendered WebGL canvas solid black, which
+// is what a black scene with a live DOM HUD looks like. Rendering offscreen and
+// copying the finished frame into a plain 2D canvas avoids that compositing path
+// in every browser that supports canvas at all. ?direct=1 opts back into drawing
+// straight to the visible WebGL canvas for maximum speed.
+let DIRECT_MODE = PARAMS.has('direct');
+let canvas = gameCanvas;
+let displayCtx = null;
+if (!DIRECT_MODE) {
+  displayCtx = gameCanvas.getContext('2d');
+  if (displayCtx) {
+    canvas = document.createElement('canvas');
+    document.body.classList.add('blit');
+  } else {
+    // No 2D context at all: fall back to drawing straight to the visible canvas.
+    DIRECT_MODE = true;
+  }
+}
 const RES_SCALE = COMPAT_MODE ? 0.45 : SAFE_MODE ? 0.6 : 0.9;
 
 const renderer = new THREE.WebGLRenderer({
@@ -57,7 +71,7 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false,
   powerPreference: COMPAT_MODE ? 'low-power' : 'default',
   precision: LOW_MODE ? 'mediump' : 'highp',
-  preserveDrawingBuffer: COMPAT_MODE,
+  preserveDrawingBuffer: !DIRECT_MODE || COMPAT_MODE,
   failIfMajorPerformanceCaveat: false,
 });
 renderer.setPixelRatio(1);
@@ -67,6 +81,8 @@ renderer.outputColorSpace = COMPAT_MODE ? THREE.LinearSRGBColorSpace : THREE.SRG
 renderer.toneMapping = COMPAT_MODE ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.6;
 if (COMPAT_MODE) document.body.classList.add('compat');
+try { window.__bloodvoxAttachGL?.(renderer.getContext()); } catch (error) { /* diagnostics only */ }
+window.__bloodvoxDisplay = displayCtx ? { canvas: gameCanvas, ctx: displayCtx, glCanvas: canvas } : null;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202a35);

@@ -18,6 +18,9 @@ export default defineConfig(({ command }) => ({
     allowedHosts: extraHosts,
   },
   build: {
+    // Transpile optional chaining and other post-ES2017 syntax so the bundle
+    // also parses in older WebGL2-capable browsers.
+    target: 'es2017',
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       input: {
