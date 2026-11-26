@@ -1,0 +1,26 @@
+name: Apply graphics ladder patch
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${{ github.ref_name }}"
+          git show FETCH_HEAD:graphics.patch.b64 | base64 -d | gunzip > graphics.patch
+          git apply --check graphics.patch
+          git apply graphics.patch
+          rm -f graphics.patch
+          git add index.html src/main.js src/style.css
+          git commit -m "Render the full sky instead of clipping it to black"
+          git push origin HEAD:main
