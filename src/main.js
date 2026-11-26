@@ -72,7 +72,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202a35);
 scene.fog = new THREE.FogExp2(0x2a3542, 0.0081);
 
-const camera = new THREE.PerspectiveCamera(76, 1, 0.05, 230);
+// The sky sphere has a radius of 260, so a 230 far plane clipped it away in
+// every direction and left the background black. Keep the far plane beyond the
+// sky shell plus the map's half-diagonal.
+const camera = new THREE.PerspectiveCamera(76, 1, 0.05, 430);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 
